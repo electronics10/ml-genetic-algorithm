@@ -3,6 +3,29 @@
 This project aims to provide a flexible automated solution for designing dual band (may be easily extended by altering the fitness calculation method) planar antennas. The whole optimization process is automated by utilizing Python scripts to control CST Studio Suite® 2025 (2023 is also valid). Genetic algorithm (BPSO is another possible method and may be adopted in the future) is used to optimize the antenna topology. The antenna topogy will gradually evolve from a arbitrary design to a spec-satisfying design. The design region of the antenna topology is a pixelated rectangular area with user-defined length, width, height, fineness, and position. This project can be easily integrated with any CST simulation files by directly drawing the design region at the user-defined location in the files. Machine learning-based surrogate model can be used to accelerate the genetic algortihm optimization process by roughly 10~15% faster in average (optional). 
 
 ---
+## Known Issues and Caveats
+This code is related to Chapter 4 of my master's thesis (NTU, 2025, doi:10.6342/NTU202501972). A review in Nov 2026 found the issues below. They have **not** been fixed yet. Please read them before reusing the code or citing the results.
+
+**Reproducibility**
+- No version of this repository contains the exact Chapter 4 setup (1.5 GHz, 36 mm x 36 mm region, 4 x 4 pixels with the central 4 prefilled). The current settings are for a dual-band 15 x 6 region.
+- There is no script for the 50-trial average in thesis Fig. 4.17.
+
+**GA bugs**
+- `MUTATE_RATE = 1/POPULATION_SIZE*CONVERGENCE*30` is far too large: 0.6 in the June 2025 version and about 1.02 with the current `settings.json`. At 1.02 *every* bit of every child is flipped. The GA then behaves close to random search with elitism, which weakens the GA vs. MLAO-GA comparison. A common choice is about 1/(number of pixels).
+- The loop condition `while (best_fitness < CONVERGENCE) or (len(...) < MAX_ITERATIONS)` should use `and`. With `or`, the loop never stops if the design never converges.
+- The initial population uses `np.random.randint(pixels, size=POPULATION_SIZE)`, i.e. integers in [0, NX*NY). This only switches on the lowest-index pixels. It should be `np.random.randint(0, 2, size=(POPULATION_SIZE, NX*NY))`.
+- Selection keeps the top sqrt(N) individuals (truncation selection). The thesis calls it tournament selection.
+- "Iterations" count cached (already simulated) designs too, so they are not the number of EM simulations. The cache in `fitness_table.csv` is also shared across runs.
+
+**MLAO-GA bugs**
+- Data augmentation uses `individual[::-1]`, which rotates the grid by 180 degrees. With an off-centre feed, the rotated design is a different antenna, so it gets a wrong fitness label. The valid symmetry for a feed on y = 0 is a mirror across y = 0 (flip the rows only).
+- `AntennaCNN` reshapes the input as `(NX, NY)`, but pixels are laid out as `(NY, NX)` (see `set_domain` and `plot.py`). For non-square grids the CNN sees scrambled neighbours.
+- In the plain-CST branch, `best_fitness` is recorded *before* it is updated. The progression therefore lags one generation, and generation 0 records -1000.
+- `avg_last = 0` is reset at the start of every generation, so the check `pop_avg_fitness < avg_last` never fires.
+- After a surrogate-only generation, `best_fitness` holds a *predicted* value, which the loop condition can use to stop without a CST check.
+- The surrogate is used once its validation MSE is below 0.2 on min-max scaled fitness. That is a loose threshold (RMSE about 0.45 of the range). The validation split also contains mirrored copies of training samples, so the MSE is optimistic.
+
+---
 ## Setup
 Before running the code, ensure you have the following installed:
 - **CST Studio Suite®**: To solve EM problems. Official interface only support python 3.6~3.9.
@@ -73,5 +96,3 @@ python plot.py
 ```
 python verify.py
 ```
-
-
